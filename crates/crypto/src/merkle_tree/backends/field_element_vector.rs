@@ -12,6 +12,40 @@ use sha3::{
     Digest,
 };
 
+/// A Merkle tree backend that uses a generic `Digest` (e.g., SHA-256, Keccak256)
+/// to hash `Vec<FieldElement<F>>` data for leaves. Internal nodes (parents) are
+/// formed by hashing the concatenated byte representations of their children.
+/// The output node is a fixed-size byte array.
+///
+/// **Security Considerations - Domain Separation:**
+/// The current implementation of `FieldElementVectorBackend`:
+/// - For leaves (`hash_data`): Iterates through the input `Vec<FieldElement<F>>`,
+///   serializes each element to bytes, and feeds these sequentially to the hasher.
+/// - For internal nodes (`hash_new_parent`): Concatenates and hashes the byte
+///   representations of child nodes.
+///
+/// ```
+/// // Simplified conceptual representation:
+/// // hash_data(input: &Vec<FE>) -> H(FE_0.as_bytes() || FE_1.as_bytes() || ...)
+/// // hash_new_parent(left: &Node, right: &Node) -> H(left_bytes || right_bytes)
+/// ```
+///
+/// This does **not** inherently provide domain separation between leaf data and internal
+/// node construction, nor does it distinguish between different leaf data structures if, for
+/// example, `[FE(1), FE(23)]` and `[FE(12), FE(3)]` could serialize to the same byte sequence.
+/// It is crucial to ensure that the hash of a leaf cannot collide with the hash of an
+/// internal node, and that distinct leaf data structures hash to distinct values.
+///
+/// **Recommendation for Secure Implementation:**
+/// For production use, this backend should be modified, or a new backend created,
+/// to incorporate domain separation. This typically involves prepending a unique domain tag
+/// (e.g., a specific byte or sequence of bytes) to the data before hashing:
+/// - For leaves: `H(LEAF_DOMAIN_TAG || FE_0.as_bytes() || FE_1.as_bytes() || ...)`
+/// - For internal nodes: `H(NODE_DOMAIN_TAG || left_bytes || right_bytes)`
+///
+/// Where `LEAF_DOMAIN_TAG` and `NODE_DOMAIN_TAG` are distinct constant byte sequences.
+/// This ensures that the inputs to the hash function for leaves and internal nodes
+/// always differ, preventing type confusion attacks.
 #[derive(Clone)]
 pub struct FieldElementVectorBackend<F, D: Digest, const NUM_BYTES: usize> {
     phantom1: PhantomData<F>,
@@ -58,6 +92,40 @@ where
     }
 }
 
+/// A Merkle tree backend that uses a `Poseidon` hash function.
+/// `Data` is `Vec<FieldElement<P::F>>` (hashed with `P::hash_many` for leaves).
+/// `Node` is `FieldElement<P::F>` (internal nodes hashed with `P::hash`).
+///
+/// **Security Considerations - Domain Separation:**
+/// The current implementation of `BatchPoseidonTree` uses:
+/// - `P::hash_many(input_vector)` for leaves.
+/// - `P::hash(left_child, right_child)` for internal nodes.
+///
+/// ```
+/// // Simplified conceptual representation:
+/// // hash_data(input: &Vec<FE>) -> P::hash_many(input)
+/// // hash_new_parent(left: &FE, right: &FE) -> P::hash(left, right)
+/// ```
+///
+/// While `P::hash_many` and `P::hash` are different functions and might use different
+/// internal configurations (e.g. different round constants based on input arity),
+/// making explicit domain separation a part of the input fed to the Poseidon permutation
+/// is a stronger security practice. This ensures that inputs for leaf construction are
+/// unambiguously distinct from inputs for internal node construction.
+///
+/// **Recommendation for Secure Implementation:**
+/// For production use, consider modifying this backend or creating a new one
+/// to incorporate explicit domain separation. This can be achieved by dedicating one of the
+/// input field elements as a domain tag when calling the Poseidon hash function:
+/// - For leaves: Prepend a `LEAF_DOMAIN_TAG_FE` to the `input` vector before calling `P::hash_many`.
+///   Example: `let tagged_input = [vec![LEAF_DOMAIN_TAG_FE], input.as_slice()].concat(); P::hash_many(&tagged_input)`
+/// - For internal nodes: `P::hash(&[NODE_DOMAIN_TAG_FE, left, right])` (if `P::hash` can take 3 inputs,
+///   otherwise adjust based on the Poseidon interface, e.g., by hashing `NODE_DOMAIN_TAG_FE` with `left` first, then with `right`).
+///
+/// Where `LEAF_DOMAIN_TAG_FE` and `NODE_DOMAIN_TAG_FE` are distinct, constant field elements.
+/// This makes the inputs to the Poseidon permutation unambiguously different for leaves versus internal nodes.
+/// Alternatively, if the Poseidon implementation supports it, using different permutation variants
+/// or initial states for leaves and nodes could also achieve domain separation.
 #[derive(Clone, Default)]
 pub struct BatchPoseidonTree<P: Poseidon + Default> {
     _poseidon: PhantomData<P>,

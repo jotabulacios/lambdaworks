@@ -225,6 +225,36 @@ Note: The serialization example assumes that the type used for the Merkle tree n
   - Standard cryptographic hash functions (SHA-3, Keccak) provide strong security guarantees
 
 
+## Security Considerations
+
+When implementing or utilizing Merkle trees, especially in security-sensitive applications, several aspects require careful attention.
+
+### Domain Separation
+
+**What is Domain Separation?**
+
+In the context of Merkle trees, domain separation refers to the practice of ensuring that the data hashed for leaf nodes is treated differently from the data hashed for internal (or non-leaf) nodes. Even if the underlying byte sequence of a piece of leaf data happens to be identical to the byte sequence representing concatenated child hashes, the resulting hash values should be distinct due to domain separation.
+
+**Why is it Important?**
+
+Without domain separation, a sophisticated attacker might be able to craft a leaf input that hashes to the same value as a legitimate internal node in the tree, or vice-versa. This could potentially lead to scenarios where:
+- A proof for a crafted leaf appears valid for a different (internal) part of the tree.
+- An attacker might be able to construct a seemingly valid proof for data not actually in the tree.
+
+Such "type confusion" vulnerabilities can undermine the integrity guarantees of the Merkle tree.
+
+**Recommended Approach:**
+
+To achieve domain separation, implementations of the `IsMerkleTreeBackend` trait must ensure their hashing logic distinguishes between these two types of inputs. A common and effective method is to prepend a unique prefix (a "domain tag") to the data before it is hashed:
+- For leaf data: `hash(LEAF_TAG || leaf_data_bytes)`
+- For internal nodes: `hash(NODE_TAG || left_child_hash_bytes || right_child_hash_bytes)`
+
+Here, `LEAF_TAG` and `NODE_TAG` are distinct constant byte sequences (e.g., `0x00` and `0x01` respectively). This ensures that the inputs to the underlying hash function are always different for leaves and internal nodes.
+
+**Further Information:**
+
+For detailed guidance on how domain separation should be implemented, refer to the documentation for the `IsMerkleTreeBackend` trait itself, as well as the documentation for specific backend implementations provided in this library (e.g., `FieldElementBackend`, `TreePoseidon`). These resources offer more context-specific recommendations.
+
 ## References
 
 - [Merkle Tree - Wikipedia](https://en.wikipedia.org/wiki/Merkle_tree)

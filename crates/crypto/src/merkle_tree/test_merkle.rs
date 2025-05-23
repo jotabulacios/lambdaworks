@@ -31,10 +31,12 @@ where
     type Data = FieldElement<F>;
 
     fn hash_data(input: &Self::Data) -> Self::Node {
-        input + input
+        // Domain separation: add 1 for leaf hashing
+        input + input + FieldElement::one()
     }
 
     fn hash_new_parent(left: &Self::Node, right: &Self::Node) -> Self::Node {
-        left + right
+        // Domain separation: add 2 for internal node hashing
+        left + right + FieldElement::from(2_u64)
     }
 }
